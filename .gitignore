@@ -1,0 +1,9 @@
+/dist/
+*.exe
+
+.DS_Store
+.vscode/
+.idea/
+
+*.local.json
+*.local.conf
