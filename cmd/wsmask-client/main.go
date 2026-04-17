@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log"
@@ -14,6 +15,8 @@ import (
 	"github.com/missuo/wsmask/internal/proto"
 	"github.com/missuo/wsmask/internal/tunnel"
 )
+
+const browserUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
 var (
 	listenAddr = flag.String("listen", "127.0.0.1:12345", "local TCP listen address")
@@ -82,17 +85,20 @@ func handle(c *net.TCPConn, u *url.URL) {
 
 	header := http.Header{}
 	header.Set("Host", *fakeHost)
-	header.Set("X-Target", dst)
-	header.Set("X-Auth", *authToken)
-	header.Set("User-Agent", "Mozilla/5.0 (compatible; wsmask/0.1)")
+	header.Set("User-Agent", browserUA)
+
+	dialURL := *u
+	q := dialURL.Query()
+	q.Set("c", base64.URLEncoding.EncodeToString([]byte(dst+"|"+*authToken)))
+	dialURL.RawQuery = q.Encode()
 
 	dialer := *websocket.DefaultDialer
 	dialer.HandshakeTimeout = 10 * time.Second
 	dialer.EnableCompression = false
 
-	log.Printf("[%s] WS handshake → %s  Host=%s  X-Target=%s", tag, u, *fakeHost, dst)
+	log.Printf("[%s] WS handshake → %s  Host=%s  target=%s", tag, &dialURL, *fakeHost, dst)
 	t0 := time.Now()
-	ws, resp, err := dialer.Dial(u.String(), header)
+	ws, resp, err := dialer.Dial(dialURL.String(), header)
 	if err != nil {
 		extra := ""
 		if resp != nil {

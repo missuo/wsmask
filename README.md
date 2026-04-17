@@ -60,6 +60,8 @@ Common router targets: `arm64`, `arm`+`GOARM=7`, `mipsle`+`GOMIPS=softfloat`.
 ./wsmask-server -listen :8080 -auth 'change-me'
 ```
 
+Default WS path is `/ec-McAuth`. Everything else returns a decoy `nginx 404`.
+
 Open your cloud firewall for TCP 8080. Wrap in systemd for production.
 
 ## OpenWrt
@@ -79,7 +81,7 @@ nft list table ip wsmask
 # 4. Run the client
 /usr/bin/wsmask-client \
   -listen 127.0.0.1:12345 \
-  -server ws://VPS_IP:8080 \
+  -server ws://VPS_IP:8080/ec-McAuth \
   -fake-host www.bing.com \
   -auth 'change-me'
 ```
@@ -94,7 +96,7 @@ accepted connection to a fixed upstream:
 
 ```sh
 ./wsmask-client -listen 127.0.0.1:12345 \
-  -server ws://VPS:8080 \
+  -server ws://VPS:8080/ec-McAuth \
   -fake-host www.bing.com \
   -auth 'change-me' \
   -target ifconfig.me:80
@@ -119,14 +121,29 @@ curl -H 'Host: ifconfig.me' http://127.0.0.1:12345/
 | Flag | Default | Description |
 |---|---|---|
 | `-listen` | `:8080` | HTTP listen address |
-| `-path` | `/` | WebSocket upgrade path |
+| `-path` | `/ec-McAuth` | WebSocket upgrade path |
 | `-auth` | *(required)* | Shared auth token |
 | `-dial-timeout` | `10s` | Upstream dial timeout |
 
+## Wire format
+
+The WS handshake carries the real destination and the shared auth token in a
+single URL query parameter:
+
+```
+GET /ec-McAuth?c=<base64url(target|token)> HTTP/1.1
+Host: <fake-host>
+Upgrade: websocket
+User-Agent: Mozilla/5.0 ... Chrome/131.0.0.0 Safari/537.36
+```
+
+No custom `X-*` headers are sent — the handshake looks like a plain
+authenticated WS subscription request from a Chrome browser.
+
 ## Security notes
 
-- The server is a semi-open TCP proxy gated only by `X-Auth`. Treat the token
-  like an SSH key — rotate regularly, don't commit it.
+- The server is a semi-open TCP proxy gated only by the shared token in `?c=`.
+  Treat it like an SSH key — rotate regularly, don't commit it.
 - Private / loopback / link-local / multicast destinations are rejected
   server-side to prevent SSRF into the VPS's internal network.
 - Non-WS requests and auth failures return a decoy `nginx 404` page.

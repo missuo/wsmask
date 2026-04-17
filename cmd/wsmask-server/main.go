@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -17,7 +18,7 @@ import (
 
 var (
 	listenAddr = flag.String("listen", ":8080", "HTTP listen address")
-	wsPath     = flag.String("path", "/", "WebSocket upgrade path")
+	wsPath     = flag.String("path", "/ec-McAuth", "WebSocket upgrade path")
 	authToken  = flag.String("auth", "", "shared auth token (required)")
 	dialTO     = flag.Duration("dial-timeout", 10*time.Second, "upstream dial timeout")
 )
@@ -66,15 +67,9 @@ func handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Header.Get("X-Auth") != *authToken {
-		log.Printf("[%s] auth failed (got %q) → decoy", tag, r.Header.Get("X-Auth"))
-		decoy(w, r)
-		return
-	}
-
-	target := r.Header.Get("X-Target")
-	if target == "" {
-		log.Printf("[%s] missing X-Target → decoy", tag)
+	target, ok := parseC(r.URL.Query().Get("c"), *authToken)
+	if !ok {
+		log.Printf("[%s] invalid or missing ?c= → decoy", tag)
 		decoy(w, r)
 		return
 	}
@@ -99,6 +94,27 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	sessTag := fmt.Sprintf("%s⇄%s", tag, target)
 	log.Printf("[%s] tunnel open", sessTag)
 	tunnel.Pump(ws, remote, sessTag)
+}
+
+// parseC decodes base64url(target|token). Returns target and ok=true only
+// if the encoding is well-formed and the token matches.
+func parseC(c, expectedToken string) (string, bool) {
+	if c == "" {
+		return "", false
+	}
+	raw, err := base64.URLEncoding.DecodeString(c)
+	if err != nil {
+		return "", false
+	}
+	parts := strings.SplitN(string(raw), "|", 2)
+	if len(parts) != 2 {
+		return "", false
+	}
+	target, token := parts[0], parts[1]
+	if token != expectedToken || target == "" {
+		return "", false
+	}
+	return target, true
 }
 
 func decoy(w http.ResponseWriter, _ *http.Request) {
