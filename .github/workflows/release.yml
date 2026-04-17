@@ -1,0 +1,50 @@
+name: release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.goos }}/${{ matrix.goarch }}${{ matrix.variant }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: linux, goarch: arm,    goarm: 7,          variant: v7 }
+          - { goos: linux, goarch: mipsle, gomips: softfloat, variant: -softfloat }
+          - { goos: linux, goarch: mips,   gomips: softfloat, variant: -softfloat }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Build binaries
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          GOMIPS: ${{ matrix.gomips }}
+          CGO_ENABLED: "0"
+        run: |
+          set -eux
+          version="${GITHUB_REF_NAME}"
+          tag="${GOOS}-${GOARCH}${{ matrix.variant }}"
+          mkdir -p dist
+          go build -ldflags="-s -w" -trimpath \
+            -o "dist/wsmask-client-${version}-${tag}" ./cmd/wsmask-client
+          go build -ldflags="-s -w" -trimpath \
+            -o "dist/wsmask-server-${version}-${tag}" ./cmd/wsmask-server
+
+      - name: Upload binaries to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
